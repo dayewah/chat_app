@@ -1,11 +1,15 @@
 import requests
+import time
 from signalrcore.hub_connection_builder import HubConnectionBuilder
 
-negotiate_url='https://chat-func-py.azurewebsites.net/api/negotiate'
-messages_url='https://chat-func-py.azurewebsites.net/api/messages'
+negotiate_url='https://chat-py.azurewebsites.net/api/negotiate'
+messages_url='https://chat-py.azurewebsites.net/api/messages'
 response=requests.post(negotiate_url)
 result=response.json()
 server_url=result['url']
+connection_open=False
+offset=40
+
 
 # {"url":"https://da-rpi-signalr.service.signalr.net/client/?hub=chat","accessToken":"<token>"}
 def input_with_default(input_text, default_value):
@@ -13,6 +17,26 @@ def input_with_default(input_text, default_value):
     return default_value if value is None or value.strip() == "" else value
 
 username = input_with_default('Enter your username (default: {0}): ', "User-1")
+
+def on_open():
+    """hub connection on open handler"""
+    print("connection opened and handshake received ready to send messages\n")
+    global connection_open
+    connection_open=True
+
+def on_close():
+    """hub connection on close handler"""
+    global connection_open
+    connection_open=False
+    print("\rconnection closed")
+
+def print_message(msg):
+    sender=msg[0]['sender']
+    text=msg[0]['text']
+    if sender != username:
+        print(f"\r{sender}: {text}" + (" " * offset) + "\n" + (" " * offset) + f"{username}:", end="")
+
+
 
 hub_connection = HubConnectionBuilder()\
     .with_url(server_url, options={
@@ -24,17 +48,22 @@ hub_connection = HubConnectionBuilder()\
     })\
     .build()
 
-hub_connection.on_open(lambda: print("connection opened and handshake received ready to send messages\n"))
-hub_connection.on_close(lambda: print("connection closed"))
-hub_connection.on("newMessage", lambda msg:print(f"{msg[0]['sender']}: {msg[0]['text']}"))
+hub_connection.on_open(on_open)
+hub_connection.on_close(on_close)
+hub_connection.on("newMessage", print_message)
 hub_connection.start()
 
 message = None
 
 while message != "exit()":
-    message = input()
-    if message is not None and message is not "" and message is not "exit()":
-        # hub_connection.send("SendMessage", [username, message])
-        resp=requests.post(messages_url, json={"sender": username, "text": message})
+    if connection_open:
+        print(" " * offset + f"{username}:", end="")
+        message = input()
+        if message != None and message != "" and message != "exit()":
+            # hub_connection.send("SendMessage", [username, message])
+            resp=requests.post(messages_url, json={"sender": username, "text": message})
+    else:
+        print ("Loading...", end="\r")
+        time.sleep(1)
 
 hub_connection.stop()
